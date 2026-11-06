@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121418">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Wasserwaage">
+<title>Wasserwaage</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root {
+    --bg: #121418;
+    --field: #1d2026;
+    --line: #2c3038;
+    --fg: #e8e9eb;
+    --dim: #8b9099;
+    --off: #4a4f58;
+    --warn: #ff5a52;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  main {
+    max-width: 440px;
+    margin: 0 auto;
+    padding: max(20px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  svg { display: block; }
+  .icon { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* Fenster */
+  #window { width: 200px; height: 140px; color: var(--fg); }
+  #window .state { display: none; }
+  #window[data-state="open"] .open,
+  #window[data-state="closed"] .closed,
+  #window[data-state="none"] .none { display: inline; }
+  #window[data-state="none"] { color: var(--off); }
+
+  /* Waage */
+  #scale { width: 100%; max-width: 340px; margin-top: 18px; color: var(--fg); }
+  #scale.off { color: var(--off); }
+  #beam, .pan { transition: transform .45s cubic-bezier(.3,.7,.3,1.1); }
+  #beam { transform-box: view-box; transform-origin: 160px 50px; }
+
+  /* Zielfeuchte */
+  .target { margin-top: 10px; text-align: center; font-variant-numeric: tabular-nums; }
+  .target .big { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 44px; font-weight: 600; letter-spacing: -.5px; line-height: 1.1; }
+  .target .big svg { width: 34px; height: 34px; stroke-width: 2.2; }
+  .target .small { margin-top: 2px; font-size: 18px; color: var(--dim); }
+  .unit { font-size: .6em; font-weight: 400; color: var(--dim); margin-left: 3px; }
+
+  /* Spalten */
+  .cols {
+    width: 100%;
+    margin-top: 26px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-auto-flow: column;
+    grid-template-rows: repeat(6, auto);
+    column-gap: 14px;
+    row-gap: 10px;
+  }
+  .row { display: flex; align-items: center; gap: 6px; min-height: 44px; }
+  .row.in { cursor: text; background: var(--field); border: 1px solid var(--line); border-radius: 12px; padding: 0 8px 0 10px; }
+  .row.in:focus-within { border-color: var(--dim); }
+  .row.in.bad { border-color: var(--off); border-style: dashed; }
+  .row .icon { color: var(--dim); }
+  .row.wall-warn .icon { color: var(--warn); }
+  input {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 100%;
+    background: transparent;
+    border: 0;
+    outline: 0;
+    color: var(--fg);
+    font: inherit;
+    font-size: 18px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    padding: 10px 0;
+  }
+  .row .u { color: var(--dim); font-size: 14px; min-width: 26px; }
+  .pm {
+    flex: none;
+    width: 28px; height: 28px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dim);
+    font: inherit;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+  }
+  .pm:active { background: var(--line); }
+  .row.calc { min-height: 28px; padding: 0 10px; font-size: 15px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .row.calc .icon { width: 18px; height: 18px; }
+  .row.calc .v { margin-left: auto; color: var(--fg); }
+  .row.calc .u { min-width: 34px; font-size: 13px; }
+  .head { display: flex; justify-content: center; color: var(--dim); min-height: 30px; align-items: center; }
+  .head .icon { width: 26px; height: 26px; }
+
+  /* Info */
+  #info-btn {
+    margin-top: 28px;
+    width: 44px; height: 44px;
+    border: 0; background: transparent; color: var(--dim);
+    padding: 0; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #info-btn .icon { width: 26px; height: 26px; }
+  #info-btn[aria-expanded="true"] { color: var(--fg); }
+  #info { margin: 6px 0 0; max-width: 340px; text-align: center; font-size: 15px; line-height: 1.45; color: var(--dim); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-therm" viewBox="0 0 24 24"><path d="M10 13.5V5a2 2 0 0 1 4 0v8.5a4 4 0 1 1-4 0z"/><path d="M12 9v7"/></symbol>
+    <symbol id="i-rh" viewBox="0 0 24 24"><path d="M12 2.8C8.6 7.2 6 10.4 6 14.2a6 6 0 0 0 12 0c0-3.8-2.6-7-6-11.4z"/><path d="M14.2 12.2l-4.4 5.6"/><circle cx="10.1" cy="12.6" r=".9"/><circle cx="13.9" cy="17.4" r=".9"/></symbol>
+    <symbol id="i-wall" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="1"/><path d="M3 9.5h18M3 14.5h18M9 4.5v5M15 9.5v5M9 14.5v5M18 4.5v5M6 9.5v5M12 14.5v5M18 14.5v5"/></symbol>
+    <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 2.8C8.6 7.2 6 10.4 6 14.2a6 6 0 0 0 12 0c0-3.8-2.6-7-6-11.4z"/></symbol>
+    <symbol id="i-dew" viewBox="0 0 24 24"><path d="M7 14V6a1.8 1.8 0 0 1 3.6 0v8a3.6 3.6 0 1 1-3.6 0z"/><path d="M8.8 10v6"/><path d="M17.5 3.5c-2 2.6-3.4 4.3-3.4 6.2a3.4 3.4 0 0 0 6.8 0c0-1.9-1.4-3.6-3.4-6.2z"/></symbol>
+    <symbol id="i-house" viewBox="0 0 24 24"><path d="M3 11.2L12 3.5l9 7.7"/><path d="M5.5 9.3V20.5h13V9.3"/><path d="M10 20.5v-5.5h4v5.5"/></symbol>
+    <symbol id="i-tree" viewBox="0 0 24 24"><path d="M12 2.5c-3.8 0-6.5 3-6.5 6.4 0 2.2 1.1 3.9 2.6 5 .9.7 2.4 1.1 3.9 1.1s3-.4 3.9-1.1c1.5-1.1 2.6-2.8 2.6-5 0-3.4-2.7-6.4-6.5-6.4z"/><path d="M12 21.5V10.5M12 15l-2.6-2.4M12 13.2l2.4-2.2"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.2"/><path d="M12 11v6"/><circle cx="12" cy="7.6" r=".6" fill="currentColor"/></symbol>
+  </defs>
+</svg>
+
+<main>
+  <svg id="window" viewBox="0 0 200 140" data-state="none" role="img" aria-label="Fenster"
+       fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+    <!-- Rahmen, in allen Zuständen -->
+    <rect x="50" y="8" width="100" height="124" rx="3"/>
+    <!-- geschlossen -->
+    <g class="state closed">
+      <rect x="58" y="16" width="38" height="108" rx="1.5" stroke-width="3.5"/>
+      <rect x="104" y="16" width="38" height="108" rx="1.5" stroke-width="3.5"/>
+      <path d="M100 8v124" stroke-width="3.5"/>
+      <path d="M90 62v16M110 62v16" stroke-width="4"/>
+    </g>
+    <!-- offen: beide Flügel nach außen geschwenkt -->
+    <g class="state open">
+      <path d="M50 12 L14 2 L14 138 L50 128" stroke-width="3.5"/>
+      <path d="M150 12 L186 2 L186 138 L150 128" stroke-width="3.5"/>
+      <path d="M24 64v16M176 64v16" stroke-width="4"/>
+    </g>
+    <g class="state none"></g>
+  </svg>
+
+  <svg id="scale" class="off" viewBox="0 0 320 192" role="img" aria-label="Waage"
+       fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Stütze und Fuß -->
+    <path d="M160 50V184M128 184h64M146 184l14-14 14 14"/>
+    <!-- Balken -->
+    <g id="beam">
+      <path d="M40 50h240" stroke-width="3.5"/>
+    </g>
+    <circle cx="160" cy="50" r="5" fill="var(--bg)" stroke-width="2.4"/>
+    <!-- Schale innen (links) -->
+    <g class="pan" id="pan-in" style="transform: translate(40px, 50px)">
+      <path d="M0 0L-34 64M0 0L34 64" stroke-width="1.4"/>
+      <path d="M-38 64h76q-6 9-38 9t-38-9z" stroke-width="2.2"/>
+      <use href="#i-house" x="-16" y="29" width="32" height="32" stroke-width="1.6"/>
+    </g>
+    <!-- Schale außen (rechts) -->
+    <g class="pan" id="pan-out" style="transform: translate(280px, 50px)">
+      <path d="M0 0L-34 64M0 0L34 64" stroke-width="1.4"/>
+      <path d="M-38 64h76q-6 9-38 9t-38-9z" stroke-width="2.2"/>
+      <use href="#i-tree" x="-16" y="29" width="32" height="32" stroke-width="1.6"/>
+    </g>
+  </svg>
+
+  <div class="target" aria-live="polite">
+    <div class="big"><svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg><span><span id="out-target">–</span><span class="unit">%</span></span></div>
+    <div class="small"><span id="out-current">–</span> %</div>
+  </div>
+
+  <div class="cols">
+    <!-- innen -->
+    <div class="head" aria-label="innen"><svg class="icon"><use href="#i-house"/></svg></div>
+    <div class="row in" id="row-t-in">
+      <svg class="icon" aria-hidden="true"><use href="#i-therm"/></svg>
+      <button type="button" class="pm" data-for="t-in" aria-label="Vorzeichen">±</button>
+      <input id="t-in" type="text" inputmode="decimal" autocomplete="off" aria-label="Temperatur innen">
+      <span class="u">°C</span>
+    </div>
+    <div class="row in" id="row-rh-in">
+      <svg class="icon" aria-hidden="true"><use href="#i-rh"/></svg>
+      <input id="rh-in" type="text" inputmode="decimal" autocomplete="off" aria-label="Relative Feuchte innen">
+      <span class="u">%</span>
+    </div>
+    <div class="row in" id="row-wall">
+      <svg class="icon" aria-hidden="true"><use href="#i-wall"/></svg>
+      <button type="button" class="pm" data-for="wall" aria-label="Vorzeichen">±</button>
+      <input id="wall" type="text" inputmode="decimal" autocomplete="off" aria-label="Wandtemperatur (optional)">
+      <span class="u">°C</span>
+    </div>
+    <div class="row calc">
+      <svg class="icon" aria-hidden="true"><use href="#i-drop"/></svg>
+      <span class="v" id="af-in">–</span><span class="u">g/m³</span>
+    </div>
+    <div class="row calc">
+      <svg class="icon" aria-hidden="true"><use href="#i-dew"/></svg>
+      <span class="v" id="td-in">–</span><span class="u">°C</span>
+    </div>
+
+    <!-- außen -->
+    <div class="head" aria-label="außen"><svg class="icon"><use href="#i-tree"/></svg></div>
+    <div class="row in" id="row-t-out">
+      <svg class="icon" aria-hidden="true"><use href="#i-therm"/></svg>
+      <button type="button" class="pm" data-for="t-out" aria-label="Vorzeichen">±</button>
+      <input id="t-out" type="text" inputmode="decimal" autocomplete="off" aria-label="Temperatur außen">
+      <span class="u">°C</span>
+    </div>
+    <div class="row in" id="row-rh-out">
+      <svg class="icon" aria-hidden="true"><use href="#i-rh"/></svg>
+      <input id="rh-out" type="text" inputmode="decimal" autocomplete="off" aria-label="Relative Feuchte außen">
+      <span class="u">%</span>
+    </div>
+    <div class="row"></div>
+    <div class="row calc">
+      <svg class="icon" aria-hidden="true"><use href="#i-drop"/></svg>
+      <span class="v" id="af-out">–</span><span class="u">g/m³</span>
+    </div>
+    <div class="row calc">
+      <svg class="icon" aria-hidden="true"><use href="#i-dew"/></svg>
+      <span class="v" id="td-out">–</span><span class="u">°C</span>
+    </div>
+  </div>
+
+  <button id="info-btn" type="button" aria-expanded="false" aria-controls="info" aria-label="Info">
+    <svg class="icon"><use href="#i-info"/></svg>
+  </button>
+  <p id="info" hidden>Vereinfachte Annahme: Beim Lüften bleiben Innen- und Außentemperatur gleich, und die Raumluft wird vollständig durch Außenluft ersetzt.</p>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- Physik (Magnus-Formel) ----------
+  var A = 17.62, B = 243.12;
+  function es(t) { return 6.112 * Math.exp(A * t / (B + t)); }              // hPa
+  function vapor(t, rh) { return es(t) * rh / 100; }                         // hPa
+  function absHum(t, rh) { return 216.7 * vapor(t, rh) / (t + 273.15); }    // g/m³
+  function dewPoint(t, rh) {
+    var g = Math.log(rh / 100) + A * t / (B + t);
+    return B * g / (A - g);                                                  // °C
+  }
+
+  // ---------- Hilfen ----------
+  function r1(x) { var v = Math.round(x * 10) / 10; return v === 0 ? 0 : v; } // eine Nachkommastelle, ohne -0
+  function fmt(x) { return r1(x).toFixed(1).replace('.', ','); }
+
+  // Leer -> null, ungültig -> NaN, sonst Zahl
+  function parse(str) {
+    var s = String(str).trim().replace(',', '.');
+    if (s === '') return null;
+    if (!/^-?(\d+\.?\d*|\.\d+)$/.test(s)) return NaN;
+    return parseFloat(s);
+  }
+  function validT(v) { return typeof v === 'number' && v >= -40 && v <= 60; }
+  function validRH(v) { return typeof v === 'number' && v > 0 && v <= 100; }
+
+  // ---------- Speicher ----------
+  var KEY = 'wasserwaage';
+  var IDS = ['t-in', 'rh-in', 'wall', 't-out', 'rh-out'];
+  var DEFAULTS = { 't-in': '21', 'rh-in': '60', 'wall': '', 't-out': '5', 'rh-out': '80' };
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (raw) {
+        var obj = JSON.parse(raw);
+        if (obj && typeof obj === 'object') return obj;
+      }
+    } catch (e) {}
+    return DEFAULTS;
+  }
+  function save() {
+    var obj = {};
+    IDS.forEach(function (id) { obj[id] = el[id].value; });
+    try { localStorage.setItem(KEY, JSON.stringify(obj)); } catch (e) {}
+  }
+
+  // ---------- DOM ----------
+  var el = {};
+  IDS.concat(['window', 'scale', 'beam', 'pan-in', 'pan-out', 'out-target', 'out-current',
+              'af-in', 'td-in', 'af-out', 'td-out', 'row-wall', 'info-btn', 'info'])
+    .forEach(function (id) { el[id] = document.getElementById(id); });
+
+  function markRow(id, ok) {
+    var row = el[id].closest('.row');
+    row.classList.toggle('bad', !ok);
+  }
+
+  // Neigung: positiv = innen (links) schwerer
+  var BEAM_HALF = 120, PIVOT_X = 160, PIVOT_Y = 50;
+  function setTilt(deg) {
+    // Linke Seite sinkt bei positiver Neigung -> SVG-Rotation gegen den Uhrzeigersinn (negativ)
+    var rot = -deg;
+    var rad = rot * Math.PI / 180;
+    var dx = BEAM_HALF * Math.cos(rad), dy = BEAM_HALF * Math.sin(rad);
+    el.beam.style.transform = 'rotate(' + rot + 'deg)';
+    el['pan-in'].style.transform = 'translate(' + (PIVOT_X - dx) + 'px,' + (PIVOT_Y - dy) + 'px)';
+    el['pan-out'].style.transform = 'translate(' + (PIVOT_X + dx) + 'px,' + (PIVOT_Y + dy) + 'px)';
+  }
+
+  function update() {
+    var tIn = parse(el['t-in'].value), rhIn = parse(el['rh-in'].value);
+    var tOut = parse(el['t-out'].value), rhOut = parse(el['rh-out'].value);
+    var wall = parse(el.wall.value);
+
+    var okTIn = validT(tIn), okRhIn = validRH(rhIn);
+    var okTOut = validT(tOut), okRhOut = validRH(rhOut);
+    var okWall = wall === null || validT(wall);
+
+    markRow('t-in', okTIn || tIn === null);
+    markRow('rh-in', okRhIn || rhIn === null);
+    markRow('t-out', okTOut || tOut === null);
+    markRow('rh-out', okRhOut || rhOut === null);
+    markRow('wall', okWall);
+
+    var inOk = okTIn && okRhIn, outOk = okTOut && okRhOut;
+
+    // Pro Spalte: absolute Feuchte und Taupunkt
+    var afIn, afOut, tdOut;
+    if (inOk) {
+      afIn = r1(absHum(tIn, rhIn));
+      el['af-in'].textContent = fmt(afIn);
+      el['td-in'].textContent = fmt(dewPoint(tIn, rhIn));
+    } else {
+      el['af-in'].textContent = '–';
+      el['td-in'].textContent = '–';
+    }
+    if (outOk) {
+      afOut = r1(absHum(tOut, rhOut));
+      tdOut = r1(dewPoint(tOut, rhOut));
+      el['af-out'].textContent = fmt(afOut);
+      el['td-out'].textContent = fmt(tdOut);
+    } else {
+      el['af-out'].textContent = '–';
+      el['td-out'].textContent = '–';
+    }
+
+    el['out-current'].textContent = okRhIn ? fmt(rhIn) : '–';
+
+    // Zielfeuchte
+    var target = null;
+    if (inOk && outOk) {
+      target = r1(vapor(tOut, rhOut) / es(tIn) * 100);
+      el['out-target'].textContent = fmt(target);
+    } else {
+      el['out-target'].textContent = '–';
+    }
+
+    // Wand: Kondensation, wenn angezeigter Außen-Taupunkt > Wandtemperatur (gerundet)
+    var condensation = outOk && typeof wall === 'number' && okWall && tdOut > r1(wall);
+    el['row-wall'].classList.toggle('wall-warn', condensation);
+
+    // Fenster und Waage
+    var ready = inOk && outOk && okWall;
+    if (!ready) {
+      el.window.setAttribute('data-state', 'none');
+      el.scale.classList.add('off');
+      setTilt(0);
+      return;
+    }
+
+    var open = !condensation && target < r1(rhIn);
+    el.window.setAttribute('data-state', open ? 'open' : 'closed');
+
+    var diff = r1(afIn - afOut);     // innen minus außen, aus den angezeigten Werten
+    var mag = Math.abs(diff);
+    var deg = mag < 0.5 ? 0 : (mag < 2 ? 8 : 20);
+    el.scale.classList.remove('off');
+    setTilt(diff > 0 ? deg : -deg);
+  }
+
+  // ---------- Ereignisse ----------
+  var stored = load();
+  IDS.forEach(function (id) {
+    el[id].value = typeof stored[id] === 'string' ? stored[id] : '';
+    el[id].addEventListener('input', function () { update(); save(); });
+  });
+
+  // Tippen auf die Zeile setzt den Fokus ins Feld
+  Array.prototype.forEach.call(document.querySelectorAll('.row.in'), function (row) {
+    row.addEventListener('click', function (ev) {
+      if (ev.target.closest('.pm')) return;
+      var input = row.querySelector('input');
+      if (ev.target !== input) input.focus();
+    });
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.pm'), function (btn) {
+    // Fokus im Feld behalten, damit die Tastatur offen bleibt
+    btn.addEventListener('mousedown', function (ev) { ev.preventDefault(); });
+    btn.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      var input = el[btn.getAttribute('data-for')];
+      var v = input.value.trim();
+      input.value = v.charAt(0) === '-' ? v.slice(1) : '-' + v;
+      update(); save();
+    });
+  });
+
+  el['info-btn'].addEventListener('click', function () {
+    var show = el.info.hidden;
+    el.info.hidden = !show;
+    el['info-btn'].setAttribute('aria-expanded', String(show));
+  });
+
+  update();
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function () {});
+    });
+  }
+})();
+</script>
+</body>
+</html>
