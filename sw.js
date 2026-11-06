@@ -1,6 +1,6 @@
 // Cache-First für alle Dateien der App.
 // Bei einer neuen Version der App CACHE hochzählen, damit die Geräte neu laden.
-var CACHE = 'wasserwaage-v2';
+var CACHE = 'wasserwaage-v3';
 var FILES = ['./', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', function (event) {

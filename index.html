@@ -262,7 +262,7 @@
       <li><svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg><span>Große Zahl: relative Feuchte innen nach dem Lüften. Darunter der aktuelle Wert.</span></li>
       <li><svg class="icon" aria-hidden="true"><use href="#i-drop"/></svg><span>Absolute Feuchte in g/m³.</span></li>
       <li><svg class="icon" aria-hidden="true"><use href="#i-dew"/></svg><span>Taupunkt: Ab dieser Temperatur kondensiert die Luft.</span></li>
-      <li><svg class="icon" aria-hidden="true"><use href="#i-wall"/></svg><span>Optional: Temperatur der kältesten Wandstelle. Rot heißt, die Außenluft würde dort kondensieren. Das Fenster bleibt dann zu.</span></li>
+      <li><svg class="icon" aria-hidden="true"><use href="#i-wall"/></svg><span>Optional: Temperatur der kältesten Wandstelle. Rot heißt, auch nach dem Lüften kondensiert dort Feuchtigkeit.</span></li>
       <li><span class="pm-mini">±</span><span>Vorzeichen für Minusgrade.</span></li>
     </ul>
     <p>Vereinfachte Annahme: Beim Lüften bleiben Innen- und Außentemperatur gleich, und die Raumluft wird vollständig durch Außenluft ersetzt.</p>
@@ -284,7 +284,8 @@
   }
 
   // ---------- Hilfen ----------
-  function r1(x) { var v = Math.round(x * 10) / 10; return v === 0 ? 0 : v; } // eine Nachkommastelle, ohne -0
+  // eine Nachkommastelle, symmetrisch (-2,25 -> -2,3 wie 2,25 -> 2,3), ohne -0
+  function r1(x) { var v = (x < 0 ? -1 : 1) * Math.round(Math.abs(x) * 10) / 10; return v === 0 ? 0 : v; }
   function fmt(x) { return r1(x).toFixed(1).replace('.', ','); }
 
   // Leer -> null, ungültig -> NaN, sonst Zahl
@@ -402,7 +403,8 @@
       return;
     }
 
-    var open = !condensation && target < r1(rhIn);
+    // Fenster nur nach Zielfeuchte; die rote Wand ist ein reiner Hinweis
+    var open = target < r1(rhIn);
     el.window.setAttribute('data-state', open ? 'open' : 'closed');
 
     var diff = r1(afIn - afOut);     // innen minus außen, aus den angezeigten Werten
